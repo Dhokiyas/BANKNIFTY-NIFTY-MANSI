@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from datetime import datetime
 from typing import Any
 
@@ -28,75 +27,57 @@ def calculate_atr(
         min_periods=1,
     ).mean()
 
-def floor_to_step(
-    value: float,
-    step: float,
-) -> float:
-    return float(
-        math.floor((value + 0.000001) / step)
-        * step
-    )
-
-def ceil_to_step(
-    value: float,
-    step: float,
-) -> float:
-    return float(
-        math.ceil((value - 0.000001) / step)
-        * step
-    )
-
-def align_cutoff_timezone(
+def align_datetime(
     datetime_series: pd.Series,
     selected_datetime: datetime,
 ) -> pd.Timestamp:
     cutoff = pd.Timestamp(selected_datetime)
-    series_timezone = datetime_series.dt.tz
+    timezone = datetime_series.dt.tz
 
-    if series_timezone is not None:
+    if timezone is not None:
         if cutoff.tzinfo is None:
-            cutoff = cutoff.tz_localize(
-                series_timezone
-            )
+            cutoff = cutoff.tz_localize(timezone)
         else:
-            cutoff = cutoff.tz_convert(
-                series_timezone
-            )
+            cutoff = cutoff.tz_convert(timezone)
 
     elif cutoff.tzinfo is not None:
         cutoff = cutoff.tz_localize(None)
 
     return cutoff
 
-def get_completed_session_candles(
+def get_completed_candles(
     dataframe: pd.DataFrame,
     selected_date,
     selected_datetime: datetime | None,
 ) -> pd.DataFrame:
     session_df = dataframe[
-        dataframe["Datetime"].dt.date
-        == selected_date
+        dataframe["Datetime"].dt.date == selected_date
     ].copy()
 
     if session_df.empty:
         raise ValueError(
-            "Selected date ke liye candles nahi mili."
+            "Selected date ke liye candle data nahi mila."
         )
 
     if selected_datetime is not None:
-        cutoff = align_cutoff_timezone(
+        cutoff = align_datetime(
             session_df["Datetime"],
             selected_datetime,
         )
 
-        # Selected timestamp wali candle running candle hai.
-        # Sirf usse pehle ki completed candles use hongi.
+        # Angel One timestamp candle ka start time hota hai.
+        # Selected time ki running candle include nahi hogi.
         completed_df = session_df[
             session_df["Datetime"] < cutoff
         ].copy()
 
-        if not completed_df.empty:
-            session_df = completed_df
+        if completed_df.empty:
+            raise ValueError(
+                "Analysis ke liye kam se kam ek completed "
+                "5-minute candle chahiye."
+            )
+
+        session_df = completed_df
 
     return (
         session_df
@@ -120,20 +101,16 @@ def find_pivots(
         next_row = dataframe.iloc[index + 1]
 
         if (
-            current_row["High"]
-            >= previous_row["High"]
-            and current_row["High"]
-            >= next_row["High"]
+            current_row["High"] >= previous_row["High"]
+            and current_row["High"] >= next_row["High"]
         ):
             pivot_highs.append(
                 float(current_row["High"])
             )
 
         if (
-            current_row["Low"]
-            <= previous_row["Low"]
-            and current_row["Low"]
-            <= next_row["Low"]
+            current_row["Low"] <= previous_row["Low"]
+            and current_row["Low"] <= next_row["Low"]
         ):
             pivot_lows.append(
                 float(current_row["Low"])
@@ -141,7 +118,7 @@ def find_pivots(
 
     return pivot_highs, pivot_lows
 
-def cluster_candidates(
+def cluster_levels(
     candidates: list[dict[str, Any]],
     tolerance: float,
 ) -> list[dict[str, Any]]:
@@ -153,14 +130,14 @@ def cluster_candidates(
         key=lambda item: item["price"],
     )
 
-    grouped: list[list[dict[str, Any]]] = []
+    groups: list[list[dict[str, Any]]] = []
 
     for candidate in candidates:
-        if not grouped:
-            grouped.append([candidate])
+        if not groups:
+            groups.append([candidate])
             continue
 
-        latest_group = grouped[-1]
+        latest_group = groups[-1]
 
         average_price = float(
             np.average(
@@ -176,19 +153,16 @@ def cluster_candidates(
         )
 
         if (
-            abs(
-                candidate["price"]
-                - average_price
-            )
+            abs(candidate["price"] - average_price)
             <= tolerance
         ):
             latest_group.append(candidate)
         else:
-            grouped.append([candidate])
+            groups.append([candidate])
 
     clusters: list[dict[str, Any]] = []
 
-    for group in grouped:
+    for group in groups:
         prices = [
             float(item["price"])
             for item in group
@@ -219,7 +193,7 @@ def cluster_candidates(
 
     return clusters
 
-def calculate_touch_stats(
+def calculate_level_statistics(
     dataframe: pd.DataFrame,
     level_price: float,
     tolerance: float,
@@ -235,57 +209,32 @@ def calculate_touch_stats(
     )
 
     for position, row in dataframe.iterrows():
-        is_recent = position >= recent_start
+        low = float(row["Low"])
+        high = float(row["High"])
+        close = float(row["Close"])
+
+        candle_crossed_level = (
+            low <= level_price + tolerance
+            and high >= level_price - tolerance
+        )
+
+        if candle_crossed_level:
+            touches += 1
+
+            if position >= recent_start:
+                recent_touches += 1
 
         if level_type == "support":
-            touched = (
-                abs(
-                    float(row["Low"])
-                    - level_price
-                )
-                <= tolerance
-                or (
-                    float(row["Low"])
-                    <= level_price + tolerance
-                    and float(row["High"])
-                    >= level_price - tolerance
-                )
-            )
-
             rejected = (
-                float(row["Low"])
-                <= level_price + tolerance
-                and float(row["Close"])
-                > level_price
+                low <= level_price + tolerance
+                and close > level_price + tolerance * 0.15
             )
 
         else:
-            touched = (
-                abs(
-                    float(row["High"])
-                    - level_price
-                )
-                <= tolerance
-                or (
-                    float(row["Low"])
-                    <= level_price + tolerance
-                    and float(row["High"])
-                    >= level_price - tolerance
-                )
-            )
-
             rejected = (
-                float(row["High"])
-                >= level_price - tolerance
-                and float(row["Close"])
-                < level_price
+                high >= level_price - tolerance
+                and close < level_price - tolerance * 0.15
             )
-
-        if touched:
-            touches += 1
-
-            if is_recent:
-                recent_touches += 1
 
         if rejected:
             rejections += 1
@@ -296,25 +245,26 @@ def calculate_touch_stats(
         "rejections": rejections,
     }
 
-def select_best_cluster(
+def score_levels(
     clusters: list[dict[str, Any]],
     current_df: pd.DataFrame,
     current_price: float,
     atr: float,
     tolerance: float,
     level_type: str,
-) -> dict[str, Any] | None:
+    is_bank_nifty: bool,
+) -> list[dict[str, Any]]:
     minimum_gap = max(
-        atr * 0.18,
-        10.0,
+        atr * 0.12,
+        5.0 if not is_bank_nifty else 15.0,
     )
 
     maximum_gap = max(
         atr * 4.5,
-        120.0 if current_price < 40000 else 450.0,
+        180.0 if not is_bank_nifty else 600.0,
     )
 
-    scored_levels: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
 
     for cluster in clusters:
         level_price = float(cluster["price"])
@@ -330,7 +280,7 @@ def select_best_cluster(
         if distance > maximum_gap:
             continue
 
-        statistics = calculate_touch_stats(
+        statistics = calculate_level_statistics(
             dataframe=current_df,
             level_price=level_price,
             tolerance=tolerance,
@@ -349,13 +299,13 @@ def select_best_cluster(
         score = (
             float(cluster["strength"])
             + statistics["touches"] * 1.10
-            + statistics["recent_touches"] * 1.55
-            + statistics["rejections"] * 1.40
+            + statistics["recent_touches"] * 1.60
+            + statistics["rejections"] * 1.35
             + proximity_bonus
-            - distance_in_atr * 0.45
+            - distance_in_atr * 0.65
         )
 
-        scored_levels.append(
+        results.append(
             {
                 **cluster,
                 **statistics,
@@ -364,27 +314,36 @@ def select_best_cluster(
             }
         )
 
-    if not scored_levels:
-        return None
-
-    return max(
-        scored_levels,
+    return sorted(
+        results,
         key=lambda item: item["score"],
+        reverse=True,
     )
 
-def calculate_actionable_levels(
+def round_actionable_level(
+    price: float,
+    is_bank_nifty: bool,
+) -> float:
+    step = 10.0 if is_bank_nifty else 5.0
+
+    return float(
+        round(price / step) * step
+    )
+
+def calculate_chart_levels(
     full_dataframe: pd.DataFrame,
     current_df: pd.DataFrame,
+    selected_date,
     current_price: float,
     ema20: float,
+    ema50: float,
     atr: float,
-    selected_date,
 ) -> dict[str, Any]:
     is_bank_nifty = current_price > 40000
 
     tolerance = max(
-        atr * 0.25,
-        7.0 if not is_bank_nifty else 18.0,
+        atr * 0.18,
+        6.0 if not is_bank_nifty else 18.0,
     )
 
     candidates: list[dict[str, Any]] = []
@@ -403,34 +362,31 @@ def calculate_actionable_levels(
                 }
             )
 
+    # Recent structure
     recent_df = current_df.tail(8)
+    recent_count = max(len(recent_df), 1)
 
-    total_recent = max(
-        len(recent_df),
-        1,
-    )
-
-    for position, (_, candle) in enumerate(
+    for number, (_, candle) in enumerate(
         recent_df.iterrows(),
         start=1,
     ):
         recency_weight = (
-            2.4
-            + position / total_recent
+            2.2 + number / recent_count
         )
 
         add_candidate(
-            candle["Low"],
+            float(candle["Low"]),
             "Recent Candle Low",
             recency_weight,
         )
 
         add_candidate(
-            candle["High"],
+            float(candle["High"]),
             "Recent Candle High",
             recency_weight,
         )
 
+    # Opening 15-minute range
     opening_range = current_df.head(
         min(3, len(current_df))
     )
@@ -438,29 +394,45 @@ def calculate_actionable_levels(
     add_candidate(
         float(opening_range["Low"].min()),
         "Opening Range Low",
-        3.2,
+        3.4,
     )
 
     add_candidate(
         float(opening_range["High"].max()),
         "Opening Range High",
-        3.2,
+        3.4,
+    )
+
+    # Session structure
+    add_candidate(
+        float(current_df["Low"].min()),
+        "Current Day Low",
+        2.4,
+    )
+
+    add_candidate(
+        float(current_df["High"].max()),
+        "Current Day High",
+        2.4,
     )
 
     add_candidate(
         float(current_df.iloc[0]["Open"]),
         "Day Open",
-        2.5,
+        2.4,
     )
 
-    typical_price = (
-        current_df["High"]
-        + current_df["Low"]
-        + current_df["Close"]
-    ) / 3
+    session_average = float(
+        (
+            current_df["High"]
+            + current_df["Low"]
+            + current_df["Close"]
+        ).mean()
+        / 3
+    )
 
     add_candidate(
-        float(typical_price.mean()),
+        session_average,
         "Session Average",
         2.2,
     )
@@ -468,9 +440,16 @@ def calculate_actionable_levels(
     add_candidate(
         ema20,
         "EMA 20",
-        2.3,
+        2.1,
     )
 
+    add_candidate(
+        ema50,
+        "EMA 50",
+        1.5,
+    )
+
+    # Swing structure
     pivot_highs, pivot_lows = find_pivots(
         current_df
     )
@@ -479,16 +458,17 @@ def calculate_actionable_levels(
         add_candidate(
             pivot_high,
             "Swing High",
-            2.8,
+            3.0,
         )
 
     for pivot_low in pivot_lows:
         add_candidate(
             pivot_low,
             "Swing Low",
-            2.8,
+            3.0,
         )
 
+    # Previous trading session
     full_dataframe = full_dataframe.copy()
 
     full_dataframe["SessionDate"] = (
@@ -508,35 +488,56 @@ def calculate_actionable_levels(
             == previous_dates[-1]
         ].copy()
 
+        previous_high = float(
+            previous_df["High"].max()
+        )
+
+        previous_low = float(
+            previous_df["Low"].min()
+        )
+
+        previous_close = float(
+            previous_df.iloc[-1]["Close"]
+        )
+
+        previous_pivot = (
+            previous_high
+            + previous_low
+            + previous_close
+        ) / 3
+
         previous_levels = [
             (
-                float(previous_df["High"].max()),
+                previous_high,
                 "Previous Day High",
-                3.0,
+                3.2,
             ),
             (
-                float(previous_df["Low"].min()),
+                previous_low,
                 "Previous Day Low",
-                3.0,
+                3.2,
             ),
             (
-                float(
-                    previous_df.iloc[-1]["Close"]
-                ),
+                previous_close,
                 "Previous Day Close",
-                2.4,
+                2.6,
+            ),
+            (
+                previous_pivot,
+                "Previous Day Pivot",
+                2.5,
             ),
         ]
 
-        maximum_previous_distance = max(
+        maximum_distance = max(
             atr * 5,
-            180 if not is_bank_nifty else 500,
+            250.0 if not is_bank_nifty else 700.0,
         )
 
         for price, source, weight in previous_levels:
             if (
                 abs(price - current_price)
-                <= maximum_previous_distance
+                <= maximum_distance
             ):
                 add_candidate(
                     price,
@@ -545,196 +546,238 @@ def calculate_actionable_levels(
                 )
 
     # Psychological levels
-    # Nifty: 20-point trading levels
-    # Bank Nifty: 20, 50 and 100-point levels
-    base_twenty = floor_to_step(
-        current_price,
-        20.0,
-    )
-
-    for offset in range(-8, 9):
-        add_candidate(
-            base_twenty + offset * 20.0,
-            "20 Point Psychological Level",
-            2.3,
-        )
-
     if is_bank_nifty:
-        base_fifty = floor_to_step(
-            current_price,
-            50.0,
+        lower_level = (
+            int(current_price // 50)
+            * 50
         )
 
-        base_hundred = floor_to_step(
-            current_price,
-            100.0,
-        )
+        for offset in range(-10, 11):
+            level = lower_level + offset * 50
 
-        for offset in range(-5, 6):
-            add_candidate(
-                base_fifty + offset * 50.0,
-                "50 Point Psychological Level",
-                3.2,
+            weight = (
+                3.3
+                if level % 100 == 0
+                else 2.5
             )
 
             add_candidate(
-                base_hundred + offset * 100.0,
-                "100 Point Psychological Level",
-                4.4,
+                level,
+                (
+                    "100 Point Psychological Level"
+                    if level % 100 == 0
+                    else "50 Point Psychological Level"
+                ),
+                weight,
             )
 
-    clusters = cluster_candidates(
+    else:
+        lower_level = (
+            int(current_price // 20)
+            * 20
+        )
+
+        for offset in range(-10, 11):
+            add_candidate(
+                lower_level + offset * 20,
+                "20 Point Psychological Level",
+                2.4,
+            )
+
+    clusters = cluster_levels(
         candidates=candidates,
         tolerance=tolerance,
     )
 
-    selected_support = select_best_cluster(
+    support_candidates = score_levels(
         clusters=clusters,
         current_df=current_df,
         current_price=current_price,
         atr=atr,
         tolerance=tolerance,
         level_type="support",
+        is_bank_nifty=is_bank_nifty,
     )
 
-    selected_resistance = select_best_cluster(
+    resistance_candidates = score_levels(
         clusters=clusters,
         current_df=current_df,
         current_price=current_price,
         atr=atr,
         tolerance=tolerance,
         level_type="resistance",
+        is_bank_nifty=is_bank_nifty,
     )
 
-    if selected_support is None:
-        selected_support = {
-            "price": float(
-                recent_df["Low"].min()
-            ),
-            "sources": [
-                "Recent Structure Low"
-            ],
+    if support_candidates:
+        support = support_candidates[0]
+    else:
+        support = {
+            "price": float(recent_df["Low"].min()),
+            "sources": ["Recent Structure Low"],
             "touches": 1,
-            "score": 0,
         }
 
-    if selected_resistance is None:
-        selected_resistance = {
-            "price": float(
-                recent_df["High"].max()
-            ),
-            "sources": [
-                "Recent Structure High"
-            ],
+    if resistance_candidates:
+        resistance = resistance_candidates[0]
+    else:
+        resistance = {
+            "price": float(recent_df["High"].max()),
+            "sources": ["Recent Structure High"],
             "touches": 1,
-            "score": 0,
         }
 
-    support_raw = float(
-        selected_support["price"]
+    support_level = round_actionable_level(
+        float(support["price"]),
+        is_bank_nifty,
     )
 
-    resistance_raw = float(
-        selected_resistance["price"]
+    resistance_level = round_actionable_level(
+        float(resistance["price"]),
+        is_bank_nifty,
     )
 
-    # Manual chart-view mein trigger levels
-    # clean 20-point actionable levels par hote hain.
-    support_level = floor_to_step(
-        support_raw,
-        20.0,
-    )
-
-    resistance_level = ceil_to_step(
-        resistance_raw,
-        20.0,
+    display_step = (
+        10.0 if is_bank_nifty else 5.0
     )
 
     if support_level >= current_price:
-        support_level -= 20.0
+        support_level -= display_step
 
     if resistance_level <= current_price:
-        resistance_level += 20.0
+        resistance_level += display_step
 
-    # Bank Nifty mein strong 100-point level hold
-    # immediate support ko priority deta hai.
-    if is_bank_nifty:
-        hundred_support = floor_to_step(
-            current_price,
-            100.0,
-        )
+    # Next levels for targets
+    minimum_target_gap = max(
+        atr * 0.55,
+        20.0 if not is_bank_nifty else 50.0,
+    )
 
-        hundred_distance = (
-            current_price
-            - hundred_support
-        )
-
-        last_closes = current_df[
-            "Close"
-        ].tail(3)
-
-        recent_low = float(
-            current_df["Low"].tail(4).min()
-        )
-
-        hundred_is_held = (
-            hundred_distance >= 10
-            and hundred_distance
-            <= max(120.0, atr * 1.50)
-            and bool(
-                (
-                    last_closes
-                    >= hundred_support
-                ).sum()
-                >= max(1, len(last_closes) - 1)
+    higher_levels = sorted(
+        {
+            round_actionable_level(
+                float(item["price"]),
+                is_bank_nifty,
             )
-            and recent_low
-            <= hundred_support + max(
-                45.0,
-                tolerance,
+            for item in resistance_candidates
+            if float(item["price"])
+            > resistance_level + minimum_target_gap
+        }
+    )
+
+    lower_levels = sorted(
+        {
+            round_actionable_level(
+                float(item["price"]),
+                is_bank_nifty,
             )
+            for item in support_candidates
+            if float(item["price"])
+            < support_level - minimum_target_gap
+        },
+        reverse=True,
+    )
+
+    upside_minimum_fallback = (
+        resistance_level
+        + max(
+            atr * 0.80,
+            25.0 if not is_bank_nifty else 70.0,
         )
+    )
 
-        if hundred_is_held:
-            support_level = float(
-                hundred_support
-            )
+    upside_maximum_fallback = (
+        resistance_level
+        + max(
+            atr * 1.80,
+            60.0 if not is_bank_nifty else 160.0,
+        )
+    )
 
-            selected_support = {
-                **selected_support,
-                "sources": [
-                    "100 Point Psychological Level",
-                    "Recent Price Hold",
-                    "Wick Rejection",
-                ],
-            }
+    downside_minimum_fallback = (
+        support_level
+        - max(
+            atr * 0.80,
+            25.0 if not is_bank_nifty else 70.0,
+        )
+    )
+
+    downside_maximum_fallback = (
+        support_level
+        - max(
+            atr * 1.80,
+            60.0 if not is_bank_nifty else 160.0,
+        )
+    )
+
+    bullish_minimum_target = (
+        higher_levels[0]
+        if len(higher_levels) >= 1
+        else round_actionable_level(
+            upside_minimum_fallback,
+            is_bank_nifty,
+        )
+    )
+
+    bullish_maximum_target = (
+        higher_levels[1]
+        if len(higher_levels) >= 2
+        else round_actionable_level(
+            upside_maximum_fallback,
+            is_bank_nifty,
+        )
+    )
+
+    bearish_minimum_target = (
+        lower_levels[0]
+        if len(lower_levels) >= 1
+        else round_actionable_level(
+            downside_minimum_fallback,
+            is_bank_nifty,
+        )
+    )
+
+    bearish_maximum_target = (
+        lower_levels[1]
+        if len(lower_levels) >= 2
+        else round_actionable_level(
+            downside_maximum_fallback,
+            is_bank_nifty,
+        )
+    )
 
     return {
-        "support_level": float(
-            support_level
+        "support_level": float(support_level),
+        "resistance_level": float(resistance_level),
+
+        "support_raw_level": float(
+            support["price"]
         ),
-        "resistance_level": float(
-            resistance_level
+        "resistance_raw_level": float(
+            resistance["price"]
         ),
-        "support_raw_level": support_raw,
-        "resistance_raw_level": resistance_raw,
-        "support_sources": selected_support[
-            "sources"
-        ],
-        "resistance_sources": selected_resistance[
-            "sources"
-        ],
+
+        "support_sources": support["sources"],
+        "resistance_sources": resistance["sources"],
+
         "support_touches": int(
-            selected_support.get(
-                "touches",
-                0,
-            )
+            support.get("touches", 0)
         ),
         "resistance_touches": int(
-            selected_resistance.get(
-                "touches",
-                0,
-            )
+            resistance.get("touches", 0)
+        ),
+
+        "bullish_minimum_target": float(
+            bullish_minimum_target
+        ),
+        "bullish_maximum_target": float(
+            bullish_maximum_target
+        ),
+        "bearish_minimum_target": float(
+            bearish_minimum_target
+        ),
+        "bearish_maximum_target": float(
+            bearish_maximum_target
         ),
     }
 
@@ -745,6 +788,8 @@ def calculate_chart_view(
     ema20: float,
     ema50: float,
     session_average: float,
+    opening_high: float,
+    opening_low: float,
     atr: float,
 ) -> tuple[str, int]:
     score = 0
@@ -758,10 +803,16 @@ def calculate_chart_view(
         else -1
     )
 
+    if current_price > opening_high:
+        score += 2
+
+    elif current_price < opening_low:
+        score -= 2
+
     recent_closes = current_df["Close"].tail(5)
 
     if len(recent_closes) >= 3:
-        close_slope = float(
+        slope = float(
             np.polyfit(
                 range(len(recent_closes)),
                 recent_closes,
@@ -769,21 +820,21 @@ def calculate_chart_view(
             )[0]
         )
 
-        if close_slope > atr * 0.025:
+        if slope > atr * 0.025:
             score += 1
 
-        elif close_slope < -(atr * 0.025):
+        elif slope < -(atr * 0.025):
             score -= 1
 
     recent_high = float(
-        current_df["High"].tail(5).max()
+        current_df["High"].tail(6).max()
     )
 
     recent_low = float(
-        current_df["Low"].tail(5).min()
+        current_df["Low"].tail(6).min()
     )
 
-    recent_position = (
+    range_position = (
         (current_price - recent_low)
         / max(
             recent_high - recent_low,
@@ -791,16 +842,32 @@ def calculate_chart_view(
         )
     )
 
-    if recent_position >= 0.70:
+    if range_position >= 0.70:
         score += 1
 
-    elif recent_position <= 0.30:
+    elif range_position <= 0.30:
         score -= 1
 
-    if score >= 2:
+    pivot_highs, pivot_lows = find_pivots(
+        current_df
+    )
+
+    if len(pivot_highs) >= 2:
+        if pivot_highs[-1] > pivot_highs[-2]:
+            score += 1
+        elif pivot_highs[-1] < pivot_highs[-2]:
+            score -= 1
+
+    if len(pivot_lows) >= 2:
+        if pivot_lows[-1] > pivot_lows[-2]:
+            score += 1
+        elif pivot_lows[-1] < pivot_lows[-2]:
+            score -= 1
+
+    if score >= 3:
         return "Bullish", score
 
-    if score <= -2:
+    if score <= -3:
         return "Bearish", score
 
     return "Sideways", score
@@ -821,12 +888,34 @@ def analyse_index(
         df["Datetime"]
     )
 
+    numeric_columns = [
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume",
+    ]
+
+    df[numeric_columns] = df[
+        numeric_columns
+    ].apply(
+        pd.to_numeric,
+        errors="coerce",
+    )
+
     df = (
         df
-        .sort_values("Datetime")
-        .drop_duplicates(
-            subset=["Datetime"]
+        .dropna(
+            subset=[
+                "Datetime",
+                "Open",
+                "High",
+                "Low",
+                "Close",
+            ]
         )
+        .sort_values("Datetime")
+        .drop_duplicates(subset=["Datetime"])
         .reset_index(drop=True)
     )
 
@@ -842,7 +931,7 @@ def analyse_index(
 
     df["ATR"] = calculate_atr(df)
 
-    current_df = get_completed_session_candles(
+    current_df = get_completed_candles(
         dataframe=df,
         selected_date=selected_date,
         selected_datetime=selected_datetime,
@@ -872,9 +961,17 @@ def analyse_index(
         current_df["Low"].min()
     )
 
-    ema20 = float(latest_row["EMA20"])
-    ema50 = float(latest_row["EMA50"])
-    atr = float(latest_row["ATR"])
+    ema20 = float(
+        latest_row["EMA20"]
+    )
+
+    ema50 = float(
+        latest_row["EMA50"]
+    )
+
+    atr = float(
+        latest_row["ATR"]
+    )
 
     if not np.isfinite(atr) or atr <= 0:
         atr = max(
@@ -891,13 +988,26 @@ def analyse_index(
         / 3
     )
 
-    levels = calculate_actionable_levels(
+    opening_range = current_df.head(
+        min(3, len(current_df))
+    )
+
+    opening_high = float(
+        opening_range["High"].max()
+    )
+
+    opening_low = float(
+        opening_range["Low"].min()
+    )
+
+    level_analysis = calculate_chart_levels(
         full_dataframe=df,
         current_df=current_df,
+        selected_date=selected_date,
         current_price=current_price,
         ema20=ema20,
+        ema50=ema50,
         atr=atr,
-        selected_date=selected_date,
     )
 
     chart_view, chart_score = (
@@ -908,59 +1018,31 @@ def analyse_index(
             ema20=ema20,
             ema50=ema50,
             session_average=session_average,
+            opening_high=opening_high,
+            opening_low=opening_low,
             atr=atr,
         )
     )
 
-    support_level = levels[
+    support_level = level_analysis[
         "support_level"
     ]
 
-    resistance_level = levels[
+    resistance_level = level_analysis[
         "resistance_level"
     ]
 
-    is_bank_nifty = current_price > 40000
-
-    if is_bank_nifty:
-        bullish_minimum_target = (
-            resistance_level + 70
-        )
-
-        bullish_maximum_target = (
-            resistance_level + 170
-        )
-
-        bearish_minimum_target = (
-            support_level - 100
-        )
-
-        bearish_maximum_target = (
-            support_level - 250
-        )
-
-    else:
-        bullish_minimum_target = (
-            resistance_level + 30
-        )
-
-        bullish_maximum_target = (
-            resistance_level + 80
-        )
-
-        bearish_minimum_target = (
-            support_level - 60
-        )
-
-        bearish_maximum_target = (
-            support_level - 130
-        )
+    breakout_buffer = max(
+        atr * 0.12,
+        5.0 if current_price < 40000 else 15.0,
+    )
 
     return {
         "current_price": current_price,
         "day_open": day_open,
         "day_high": day_high,
         "day_low": day_low,
+
         "ema20": ema20,
         "ema50": ema50,
         "atr": atr,
@@ -971,44 +1053,58 @@ def analyse_index(
         "support_level": support_level,
         "resistance_level": resistance_level,
 
-        "support_raw_level": levels[
+        "support_raw_level": level_analysis[
             "support_raw_level"
         ],
-        "resistance_raw_level": levels[
+        "resistance_raw_level": level_analysis[
             "resistance_raw_level"
         ],
 
-        "support_sources": levels[
+        "support_sources": level_analysis[
             "support_sources"
         ],
-        "resistance_sources": levels[
+        "resistance_sources": level_analysis[
             "resistance_sources"
         ],
 
-        "support_touches": levels[
+        "support_touches": level_analysis[
             "support_touches"
         ],
-        "resistance_touches": levels[
+        "resistance_touches": level_analysis[
             "resistance_touches"
         ],
 
         "bullish_trigger": resistance_level,
-        "bullish_minimum_target": float(
-            bullish_minimum_target
-        ),
-        "bullish_maximum_target": float(
-            bullish_maximum_target
-        ),
-
         "bearish_trigger": support_level,
-        "bearish_minimum_target": float(
-            bearish_minimum_target
+
+        "breakout_confirmation_above": (
+            resistance_level + breakout_buffer
         ),
-        "bearish_maximum_target": float(
-            bearish_maximum_target
+        "breakdown_confirmation_below": (
+            support_level - breakout_buffer
         ),
 
-        "analysis_candle_time": (
-            latest_datetime
+        "bullish_minimum_target": (
+            level_analysis[
+                "bullish_minimum_target"
+            ]
         ),
+        "bullish_maximum_target": (
+            level_analysis[
+                "bullish_maximum_target"
+            ]
+        ),
+
+        "bearish_minimum_target": (
+            level_analysis[
+                "bearish_minimum_target"
+            ]
+        ),
+        "bearish_maximum_target": (
+            level_analysis[
+                "bearish_maximum_target"
+            ]
+        ),
+
+        "analysis_candle_time": latest_datetime,
     }

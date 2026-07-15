@@ -943,11 +943,19 @@ if st.button(
                 to_date_string=to_date_string,
             )
 
-            chart_analysis = analyse_index(
-                dataframe=dataframe,
-                selected_date=selected_date,
-                selected_datetime=selected_datetime,
-            )
+            try:
+                chart_analysis = analyse_index(
+                    dataframe=dataframe,
+                    selected_date=selected_date,
+                    selected_datetime=selected_datetime,
+                )
+            except TypeError:
+                # Backward compatibility in case an older analyzer
+                # signature is loaded in a running session.
+                chart_analysis = analyse_index(
+                    dataframe=dataframe,
+                    selected_date=selected_date,
+                )
 
             index_results[index_name] = {
                 "dataframe": dataframe,
