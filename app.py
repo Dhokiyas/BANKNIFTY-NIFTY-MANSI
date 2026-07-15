@@ -174,26 +174,31 @@ def show_sentiment_meter(sentiment):
             "angle": -72,
             "score": 10,
             "color": "#B91C1C",
+            "label": "High Risk",
         },
         "Neutral Bearish": {
             "angle": -36,
             "score": 30,
             "color": "#F97316",
+            "label": "Weakness",
         },
         "Sideways": {
             "angle": 0,
             "score": 50,
             "color": "#64748B",
+            "label": "Balanced",
         },
         "Neutral Bullish": {
             "angle": 36,
             "score": 70,
             "color": "#84CC16",
+            "label": "Strength",
         },
         "Bullish": {
             "angle": 72,
             "score": 90,
             "color": "#16A34A",
+            "label": "Momentum",
         },
     }
 
@@ -205,11 +210,13 @@ def show_sentiment_meter(sentiment):
     angle = selected["angle"]
     score = selected["score"]
     active_color = selected["color"]
+    mood_label = selected["label"]
 
     html_code = """
     <!DOCTYPE html>
     <html>
     <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <style>
             * {
                 box-sizing: border-box;
@@ -217,7 +224,7 @@ def show_sentiment_meter(sentiment):
 
             body {
                 margin: 0;
-                padding: 0;
+                padding: 4px 0;
                 background: transparent;
                 font-family:
                     -apple-system,
@@ -228,30 +235,83 @@ def show_sentiment_meter(sentiment):
 
             .sentiment-card {
                 width: 100%;
-                padding: 8px 4px 0 4px;
-                text-align: center;
+                max-width: 720px;
+                margin: 0 auto;
+                padding: 16px 16px 12px 16px;
+                border-radius: 20px;
+                background:
+                    radial-gradient(
+                        130% 90% at 0% 0%,
+                        rgba(37, 99, 235, 0.12) 0%,
+                        rgba(255, 255, 255, 0) 46%
+                    ),
+                    radial-gradient(
+                        120% 90% at 100% 0%,
+                        rgba(16, 185, 129, 0.11) 0%,
+                        rgba(255, 255, 255, 0) 40%
+                    ),
+                    linear-gradient(
+                        180deg,
+                        rgba(255, 255, 255, 0.97) 0%,
+                        rgba(248, 250, 252, 0.97) 100%
+                    );
+                border: 1px solid rgba(148, 163, 184, 0.22);
+                box-shadow:
+                    0 12px 30px rgba(15, 23, 42, 0.12),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+            }
+
+            .top-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 8px;
+            }
+
+            .title-wrap {
+                min-width: 0;
             }
 
             .gauge-title {
                 color: #111827;
-                font-size: 17px;
-                font-weight: 700;
-                margin-bottom: 2px;
+                font-size: 18px;
+                font-weight: 800;
+                letter-spacing: 0.2px;
+                margin-bottom: 3px;
             }
 
             .gauge-subtitle {
-                color: #64748B;
+                color: #475569;
                 font-size: 12px;
-                margin-bottom: 4px;
+                opacity: 0.95;
             }
 
-            .gauge-wrap {
+            .pill {
+                flex-shrink: 0;
+                padding: 8px 14px;
+                border-radius: 999px;
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: 0.3px;
+                color: #ffffff;
+                background: linear-gradient(135deg, __ACTIVE_COLOR__, #0f172a);
+                box-shadow: 0 6px 14px rgba(15, 23, 42, 0.18);
+            }
+
+            .gauge-panel {
                 position: relative;
-                width: 520px;
-                max-width: 100%;
-                height: 255px;
+                height: 262px;
                 margin: 0 auto;
                 overflow: hidden;
+                border-radius: 18px;
+                background:
+                    linear-gradient(
+                        180deg,
+                        rgba(248, 250, 252, 0.86) 0%,
+                        rgba(241, 245, 249, 0.9) 100%
+                    );
+                border: 1px solid rgba(148, 163, 184, 0.2);
             }
 
             .gauge-arc {
@@ -260,7 +320,7 @@ def show_sentiment_meter(sentiment):
                 width: 460px;
                 height: 460px;
                 left: 50%;
-                top: 20px;
+                top: 24px;
                 transform: translateX(-50%);
                 border-radius: 50%;
 
@@ -286,7 +346,7 @@ def show_sentiment_meter(sentiment):
                 );
 
                 box-shadow:
-                    0 2px 8px rgba(15, 23, 42, 0.15);
+                    0 10px 20px rgba(15, 23, 42, 0.2);
             }
 
             .gauge-inner {
@@ -295,10 +355,28 @@ def show_sentiment_meter(sentiment):
                 width: 330px;
                 height: 330px;
                 left: 50%;
-                top: 85px;
+                top: 88px;
                 transform: translateX(-50%);
                 border-radius: 50%;
                 background: #FFFFFF;
+                box-shadow:
+                    inset 0 2px 10px rgba(148, 163, 184, 0.18);
+            }
+
+            .center-glow {
+                position: absolute;
+                z-index: 3;
+                width: 220px;
+                height: 220px;
+                left: 50%;
+                top: 145px;
+                transform: translateX(-50%);
+                border-radius: 50%;
+                background: radial-gradient(
+                    circle,
+                    rgba(255, 255, 255, 0.95) 20%,
+                    rgba(255, 255, 255, 0) 80%
+                );
             }
 
             .needle {
@@ -307,7 +385,7 @@ def show_sentiment_meter(sentiment):
                 width: 7px;
                 height: 142px;
                 left: calc(50% - 3.5px);
-                bottom: 5px;
+                bottom: 12px;
                 border-radius: 8px;
                 background: linear-gradient(
                     to top,
@@ -316,9 +394,9 @@ def show_sentiment_meter(sentiment):
                 );
                 transform-origin: 50% 100%;
                 transform: rotate(__ANGLE__deg);
-                transition: transform 0.8s ease-in-out;
+                transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
                 box-shadow:
-                    0 2px 5px rgba(15, 23, 42, 0.35);
+                    0 2px 8px rgba(15, 23, 42, 0.4);
             }
 
             .needle-hub {
@@ -327,12 +405,12 @@ def show_sentiment_meter(sentiment):
                 width: 30px;
                 height: 30px;
                 left: calc(50% - 15px);
-                bottom: -10px;
+                bottom: -3px;
                 border: 6px solid #FFFFFF;
                 border-radius: 50%;
                 background: #111827;
                 box-shadow:
-                    0 2px 7px rgba(15, 23, 42, 0.30);
+                    0 3px 10px rgba(15, 23, 42, 0.35);
             }
 
             .zone-label {
@@ -349,7 +427,7 @@ def show_sentiment_meter(sentiment):
 
             .zone-bearish {
                 left: 5%;
-                top: 163px;
+                top: 166px;
                 transform: rotate(-68deg);
             }
 
@@ -373,45 +451,96 @@ def show_sentiment_meter(sentiment):
 
             .zone-bullish {
                 right: 5%;
-                top: 163px;
+                top: 166px;
                 transform: rotate(68deg);
             }
 
+            .bottom-row {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 18px;
+                margin-top: 10px;
+                flex-wrap: wrap;
+            }
+
             .score-box {
-                margin-top: 5px;
-                font-size: 13px;
+                text-align: center;
+            }
+
+            .score-label {
+                font-size: 12px;
                 color: #64748B;
+                margin-bottom: 1px;
             }
 
             .score-value {
                 color: __ACTIVE_COLOR__;
-                font-size: 32px;
+                font-size: 34px;
                 font-weight: 800;
                 line-height: 35px;
+                letter-spacing: 0.2px;
             }
 
             .sentiment-result {
                 display: inline-block;
-                margin-top: 7px;
-                padding: 8px 24px;
+                padding: 9px 18px;
                 color: #FFFFFF;
-                background: __ACTIVE_COLOR__;
-                border-radius: 999px;
-                font-size: 15px;
+                background: linear-gradient(
+                    135deg,
+                    __ACTIVE_COLOR__ 0%,
+                    #0f172a 160%
+                );
+                border-radius: 12px;
+                font-size: 13px;
                 font-weight: 800;
+                letter-spacing: 0.45px;
+                text-transform: uppercase;
                 box-shadow:
-                    0 3px 8px rgba(15, 23, 42, 0.16);
+                    0 8px 16px rgba(15, 23, 42, 0.18);
             }
 
             @media (max-width: 600px) {
-                .gauge-wrap {
-                    transform: scale(0.88);
+                .sentiment-card {
+                    padding: 14px 10px 10px 10px;
+                    border-radius: 16px;
+                }
+
+                .top-row {
+                    gap: 8px;
+                    margin-bottom: 6px;
+                }
+
+                .gauge-title {
+                    font-size: 16px;
+                }
+
+                .gauge-subtitle {
+                    font-size: 11px;
+                }
+
+                .pill {
+                    font-size: 11px;
+                    padding: 7px 10px;
+                }
+
+                .gauge-panel {
+                    transform: scale(0.9);
                     transform-origin: top center;
-                    margin-bottom: -30px;
+                    margin-bottom: -18px;
                 }
 
                 .zone-label {
                     font-size: 9px;
+                }
+
+                .bottom-row {
+                    gap: 12px;
+                    margin-top: 6px;
+                }
+
+                .score-value {
+                    font-size: 30px;
                 }
             }
         </style>
@@ -419,17 +548,24 @@ def show_sentiment_meter(sentiment):
 
     <body>
         <div class="sentiment-card">
-            <div class="gauge-title">
-                Market Sentiment Meter
+            <div class="top-row">
+                <div class="title-wrap">
+                    <div class="gauge-title">
+                        Market Sentiment Meter
+                    </div>
+
+                    <div class="gauge-subtitle">
+                        Chart View + Weightage Stocks Confirmation
+                    </div>
+                </div>
+
+                <div class="pill">__MOOD_LABEL__</div>
             </div>
 
-            <div class="gauge-subtitle">
-                Chart View + Weightage Stocks Confirmation
-            </div>
-
-            <div class="gauge-wrap">
+            <div class="gauge-panel">
                 <div class="gauge-arc"></div>
                 <div class="gauge-inner"></div>
+                <div class="center-glow"></div>
 
                 <div class="zone-label zone-bearish">
                     BEARISH
@@ -455,16 +591,20 @@ def show_sentiment_meter(sentiment):
                 <div class="needle-hub"></div>
             </div>
 
-            <div class="score-box">
-                Sentiment Score
-            </div>
+            <div class="bottom-row">
+                <div class="score-box">
+                    <div class="score-label">
+                        Sentiment Score
+                    </div>
 
-            <div class="score-value">
-                __SCORE__/100
-            </div>
+                    <div class="score-value">
+                        __SCORE__/100
+                    </div>
+                </div>
 
-            <div class="sentiment-result">
-                __SENTIMENT__
+                <div class="sentiment-result">
+                    __SENTIMENT__
+                </div>
             </div>
         </div>
     </body>
@@ -476,12 +616,13 @@ def show_sentiment_meter(sentiment):
         .replace("__ANGLE__", str(angle))
         .replace("__SCORE__", str(score))
         .replace("__SENTIMENT__", sentiment.upper())
+        .replace("__MOOD_LABEL__", mood_label.upper())
         .replace("__ACTIVE_COLOR__", active_color)
     )
 
     components.html(
         html_code,
-        height=385,
+        height=420,
         scrolling=False,
     )
 
