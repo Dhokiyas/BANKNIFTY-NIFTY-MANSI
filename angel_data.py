@@ -1,4 +1,5 @@
 import os
+import time
 from typing import Any
 
 import pyotp
@@ -90,6 +91,8 @@ def fetch_candle_data(
     from_date: str,
     to_date: str,
     interval: str = "FIVE_MINUTE",
+    max_retries: int = 3,
+    retry_delay_seconds: float = 1.5,
 ):
     """Angel One se historical candle data fetch karta hai."""
 
@@ -101,30 +104,69 @@ def fetch_candle_data(
         "todate": to_date,
     }
 
-    try:
-        response = smart_api.getCandleData(candle_params)
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = smart_api.getCandleData(candle_params)
 
-        if not response or response.get("status") is not True:
-            message = (
-                response.get("message", "Candle data fetch failed")
-                if isinstance(response, dict)
-                else "Candle data fetch failed"
-            )
-            raise AngelAPIError(message)
+            if not response or response.get("status") is not True:
+                message = (
+                    response.get("message", "Candle data fetch failed")
+                    if isinstance(response, dict)
+                    else "Candle data fetch failed"
+                )
 
-        candles = response.get("data") or []
+                normalized_message = str(message).lower()
+                is_rate_limited = (
+                    "access denied" in normalized_message
+                    and "access rate" in normalized_message
+                )
 
-        if not candles:
+                if is_rate_limited and attempt < max_retries:
+                    time.sleep(retry_delay_seconds * attempt)
+                    continue
+
+                if is_rate_limited:
+                    raise AngelAPIError(
+                        "Angel One API rate limit hit hua. "
+                        "30-60 seconds wait karke dubara try karo."
+                    )
+
+                raise AngelAPIError(message)
+
+            candles = response.get("data") or []
+
+            if not candles:
+                raise AngelAPIError(
+                    "Selected date/time ke liye candle data nahi mila."
+                )
+
+            return candles
+
+        except AngelAPIError:
+            raise
+
+        except Exception as exc:
+            normalized_error = str(exc).lower()
+            is_rate_limited = (
+                "access denied" in normalized_error
+                and "access rate" in normalized_error
+            ) or "couldn't parse the json response" in normalized_error
+
+            if is_rate_limited and attempt < max_retries:
+                time.sleep(retry_delay_seconds * attempt)
+                continue
+
+            if is_rate_limited:
+                raise AngelAPIError(
+                    "Angel One API rate limit hit hua. "
+                    "30-60 seconds wait karke dubara try karo."
+                ) from exc
+
             raise AngelAPIError(
-                "Selected date/time ke liye candle data nahi mila."
-            )
+                f"Candle data connection error: {exc}"
+            ) from exc
 
-        return candles
-
-    except AngelAPIError:
-        raise
-
-    except Exception as exc:
-        raise AngelAPIError(
-            f"Candle data connection error: {exc}"
-        ) from exc
+    raise AngelAPIError(
+        "Candle data retry limit exceed ho gayi. "
+        "Please kuch der baad dubara try karo."
+    )
