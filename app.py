@@ -137,10 +137,14 @@ def create_chart(
     )
 
     levels = [
-        (analysis["resistance_2"], "R2"),
-        (analysis["resistance_1"], "R1"),
-        (analysis["support_1"], "S1"),
-        (analysis["support_2"], "S2"),
+        (
+            analysis["resistance_level"],
+            "Resistance",
+        ),
+        (
+            analysis["support_level"],
+            "Support",
+        ),
     ]
 
     for level_price, label in levels:
@@ -678,29 +682,31 @@ def show_market_panel(
     support_column, resistance_column = st.columns(2)
 
     with support_column:
-        st.markdown("#### Support")
+        st.markdown("#### Support Level")
 
-        st.write(
-            f'**S1:** {chart_analysis["support_1"]:,.2f}'
+        st.success(
+            f'### {chart_analysis["support_level"]:,.2f}'
         )
-        st.write(
-            f'**S2:** {chart_analysis["support_2"]:,.2f}'
-        )
-        st.write(
-            f'**S3:** {chart_analysis["support_3"]:,.2f}'
+
+        st.caption(
+            "Source: "
+            + ", ".join(
+                chart_analysis["support_sources"]
+            )
         )
 
     with resistance_column:
-        st.markdown("#### Resistance")
+        st.markdown("#### Resistance Level")
 
-        st.write(
-            f'**R1:** {chart_analysis["resistance_1"]:,.2f}'
+        st.error(
+            f'### {chart_analysis["resistance_level"]:,.2f}'
         )
-        st.write(
-            f'**R2:** {chart_analysis["resistance_2"]:,.2f}'
-        )
-        st.write(
-            f'**R3:** {chart_analysis["resistance_3"]:,.2f}'
+
+        st.caption(
+            "Source: "
+            + ", ".join(
+                chart_analysis["resistance_sources"]
+            )
         )
 
     st.markdown("#### Breakout / Breakdown Plan")
