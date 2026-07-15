@@ -119,6 +119,21 @@ def create_chart(
     selected_date,
     title,
 ):
+    resistance_level = analysis.get(
+        "resistance_level",
+        analysis.get("resistance_1"),
+    )
+
+    support_level = analysis.get(
+        "support_level",
+        analysis.get("support_1"),
+    )
+
+    if resistance_level is None or support_level is None:
+        raise KeyError(
+            "Support/Resistance levels missing in analysis data"
+        )
+
     chart_df = dataframe[
         dataframe["Datetime"].dt.date == selected_date
     ].copy()
@@ -138,11 +153,11 @@ def create_chart(
 
     levels = [
         (
-            analysis["resistance_level"],
+            resistance_level,
             "Resistance",
         ),
         (
-            analysis["support_level"],
+            support_level,
             "Support",
         ),
     ]
@@ -661,6 +676,26 @@ def show_market_panel(
             stock_confirmation["stock_view"],
         )
 
+    support_level = chart_analysis.get(
+        "support_level",
+        chart_analysis.get("support_1"),
+    )
+
+    resistance_level = chart_analysis.get(
+        "resistance_level",
+        chart_analysis.get("resistance_1"),
+    )
+
+    support_sources = chart_analysis.get(
+        "support_sources",
+        ["Derived Level"],
+    )
+
+    resistance_sources = chart_analysis.get(
+        "resistance_sources",
+        ["Derived Level"],
+    )
+
     st.markdown("#### Final Sentiment")
 
     show_sentiment_meter(final_sentiment)
@@ -685,13 +720,13 @@ def show_market_panel(
         st.markdown("#### Support Level")
 
         st.success(
-            f'### {chart_analysis["support_level"]:,.2f}'
+            f"### {float(support_level):,.2f}"
         )
 
         st.caption(
             "Source: "
             + ", ".join(
-                chart_analysis["support_sources"]
+                support_sources
             )
         )
 
@@ -699,13 +734,13 @@ def show_market_panel(
         st.markdown("#### Resistance Level")
 
         st.error(
-            f'### {chart_analysis["resistance_level"]:,.2f}'
+            f"### {float(resistance_level):,.2f}"
         )
 
         st.caption(
             "Source: "
             + ", ".join(
-                chart_analysis["resistance_sources"]
+                resistance_sources
             )
         )
 
@@ -911,6 +946,7 @@ if st.button(
             chart_analysis = analyse_index(
                 dataframe=dataframe,
                 selected_date=selected_date,
+                selected_datetime=selected_datetime,
             )
 
             index_results[index_name] = {
