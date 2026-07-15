@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import math
 import numpy as np
 import pandas as pd
 
@@ -35,6 +36,69 @@ def round_to_step(
     step: float,
 ) -> float:
     return round(price / step) * step
+
+def normalize_trigger_level(
+    raw_price: float,
+    current_price: float,
+    level_type: str,
+) -> float:
+    """
+    Final chart level ko manual chart-analysis style mein normalize karta hai.
+
+    Nifty:
+      Support    -> lower 10 point
+      Resistance -> upper 10 point
+
+    Bank Nifty:
+      Support    -> nearest 50 point psychological level
+      Resistance -> nearest 10 point actual chart level
+    """
+
+    is_bank_nifty = current_price > 40000
+
+    if is_bank_nifty:
+        if level_type == "support":
+            normalized = round_to_step(
+                raw_price,
+                50.0,
+            )
+
+            if normalized >= current_price:
+                normalized -= 50.0
+
+        else:
+            normalized = round_to_step(
+                raw_price,
+                10.0,
+            )
+
+            if normalized <= current_price:
+                normalized += 10.0
+
+    else:
+        if level_type == "support":
+            normalized = (
+                math.floor(
+                    (raw_price + 0.000001) / 10.0
+                )
+                * 10.0
+            )
+
+            if normalized >= current_price:
+                normalized -= 10.0
+
+        else:
+            normalized = (
+                math.ceil(
+                    (raw_price - 0.000001) / 10.0
+                )
+                * 10.0
+            )
+
+            if normalized <= current_price:
+                normalized += 10.0
+
+    return float(normalized)
 
 def find_swings(
     dataframe: pd.DataFrame,
@@ -237,21 +301,11 @@ def choose_immediate_level(
             key=lambda item: item["score"],
         )
 
-        rounded_price = round_to_step(
-            selected_level["price"],
-            step,
-        )
-
-        if level_type == "support":
-            if rounded_price >= current_price:
-                rounded_price -= step
-        else:
-            if rounded_price <= current_price:
-                rounded_price += step
-
         return {
             **selected_level,
-            "price": float(rounded_price),
+            "price": float(
+                selected_level["price"]
+            ),
         }
 
     fallback_price = (
@@ -261,12 +315,7 @@ def choose_immediate_level(
     )
 
     return {
-        "price": float(
-            round_to_step(
-                fallback_price,
-                step,
-            )
-        ),
+        "price": float(fallback_price),
         "strength": 0,
         "touches": 0,
         "score": 0,
@@ -578,9 +627,24 @@ def analyse_index(
         level_type="resistance",
     )
 
-    support_level = float(support["price"])
-    resistance_level = float(
+    support_raw_level = float(
+        support["price"]
+    )
+
+    resistance_raw_level = float(
         resistance["price"]
+    )
+
+    support_level = normalize_trigger_level(
+        raw_price=support_raw_level,
+        current_price=current_price,
+        level_type="support",
+    )
+
+    resistance_level = normalize_trigger_level(
+        raw_price=resistance_raw_level,
+        current_price=current_price,
+        level_type="resistance",
     )
 
     chart_score = 0
@@ -685,6 +749,9 @@ def analyse_index(
 
         "support_level": support_level,
         "resistance_level": resistance_level,
+
+        "support_raw_level": support_raw_level,
+        "resistance_raw_level": resistance_raw_level,
 
         "support_sources": support["sources"],
         "resistance_sources": resistance["sources"],
