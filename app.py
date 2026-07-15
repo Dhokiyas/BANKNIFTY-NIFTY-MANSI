@@ -4,6 +4,7 @@ import time as time_module
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 from analyzer import analyse_index
 from angel_data import (
@@ -166,85 +167,324 @@ def create_chart(
 
     return figure
 
-def show_sentiment_meter(sentiment):
-    sentiment_labels = [
-        "Bearish",
-        "Neutral Bearish",
-        "Sideways",
-        "Neutral Bullish",
-        "Bullish",
-    ]
 
-    sentiment_colors = {
-        "Bearish": "#DC2626",
-        "Neutral Bearish": "#F97316",
-        "Sideways": "#64748B",
-        "Neutral Bullish": "#84CC16",
-        "Bullish": "#16A34A",
+def show_sentiment_meter(sentiment):
+    sentiment_config = {
+        "Bearish": {
+            "angle": -72,
+            "score": 10,
+            "color": "#B91C1C",
+        },
+        "Neutral Bearish": {
+            "angle": -36,
+            "score": 30,
+            "color": "#F97316",
+        },
+        "Sideways": {
+            "angle": 0,
+            "score": 50,
+            "color": "#64748B",
+        },
+        "Neutral Bullish": {
+            "angle": 36,
+            "score": 70,
+            "color": "#84CC16",
+        },
+        "Bullish": {
+            "angle": 72,
+            "score": 90,
+            "color": "#16A34A",
+        },
     }
 
-    html_parts = [
-        """
-        <div style="
-            display:flex;
-            gap:5px;
-            width:100%;
-            margin:8px 0 14px 0;
-        ">
-        """
-    ]
-
-    for label in sentiment_labels:
-        is_active = label == sentiment
-
-        background = (
-            sentiment_colors[label]
-            if is_active
-            else "#E5E7EB"
-        )
-
-        text_color = (
-            "#FFFFFF"
-            if is_active
-            else "#64748B"
-        )
-
-        font_weight = (
-            "700"
-            if is_active
-            else "500"
-        )
-
-        border = (
-            "3px solid #111827"
-            if is_active
-            else "1px solid #D1D5DB"
-        )
-
-        html_parts.append(
-            f"""
-            <div style="
-                flex:1;
-                text-align:center;
-                padding:11px 3px;
-                background:{background};
-                color:{text_color};
-                font-weight:{font_weight};
-                border:{border};
-                border-radius:8px;
-                font-size:12px;
-            ">
-                {label}
-            </div>
-            """
-        )
-
-    html_parts.append("</div>")
-
-    st.markdown(
-        "".join(html_parts),
-        unsafe_allow_html=True,
+    selected = sentiment_config.get(
+        sentiment,
+        sentiment_config["Sideways"],
     )
+
+    angle = selected["angle"]
+    score = selected["score"]
+    active_color = selected["color"]
+
+    html_code = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                margin: 0;
+                padding: 0;
+                background: transparent;
+                font-family:
+                    -apple-system,
+                    BlinkMacSystemFont,
+                    "Segoe UI",
+                    sans-serif;
+            }
+
+            .sentiment-card {
+                width: 100%;
+                padding: 8px 4px 0 4px;
+                text-align: center;
+            }
+
+            .gauge-title {
+                color: #111827;
+                font-size: 17px;
+                font-weight: 700;
+                margin-bottom: 2px;
+            }
+
+            .gauge-subtitle {
+                color: #64748B;
+                font-size: 12px;
+                margin-bottom: 4px;
+            }
+
+            .gauge-wrap {
+                position: relative;
+                width: 520px;
+                max-width: 100%;
+                height: 255px;
+                margin: 0 auto;
+                overflow: hidden;
+            }
+
+            .gauge-arc {
+                position: absolute;
+                z-index: 1;
+                width: 460px;
+                height: 460px;
+                left: 50%;
+                top: 20px;
+                transform: translateX(-50%);
+                border-radius: 50%;
+
+                background: conic-gradient(
+                    from 270deg,
+                    #B91C1C 0deg,
+                    #B91C1C 36deg,
+
+                    #F97316 36deg,
+                    #F97316 72deg,
+
+                    #94A3B8 72deg,
+                    #94A3B8 108deg,
+
+                    #84CC16 108deg,
+                    #84CC16 144deg,
+
+                    #16A34A 144deg,
+                    #16A34A 180deg,
+
+                    transparent 180deg,
+                    transparent 360deg
+                );
+
+                box-shadow:
+                    0 2px 8px rgba(15, 23, 42, 0.15);
+            }
+
+            .gauge-inner {
+                position: absolute;
+                z-index: 2;
+                width: 330px;
+                height: 330px;
+                left: 50%;
+                top: 85px;
+                transform: translateX(-50%);
+                border-radius: 50%;
+                background: #FFFFFF;
+            }
+
+            .needle {
+                position: absolute;
+                z-index: 4;
+                width: 7px;
+                height: 142px;
+                left: calc(50% - 3.5px);
+                bottom: 5px;
+                border-radius: 8px;
+                background: linear-gradient(
+                    to top,
+                    #111827,
+                    __ACTIVE_COLOR__
+                );
+                transform-origin: 50% 100%;
+                transform: rotate(__ANGLE__deg);
+                transition: transform 0.8s ease-in-out;
+                box-shadow:
+                    0 2px 5px rgba(15, 23, 42, 0.35);
+            }
+
+            .needle-hub {
+                position: absolute;
+                z-index: 5;
+                width: 30px;
+                height: 30px;
+                left: calc(50% - 15px);
+                bottom: -10px;
+                border: 6px solid #FFFFFF;
+                border-radius: 50%;
+                background: #111827;
+                box-shadow:
+                    0 2px 7px rgba(15, 23, 42, 0.30);
+            }
+
+            .zone-label {
+                position: absolute;
+                z-index: 6;
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 0.3px;
+                white-space: nowrap;
+                color: #FFFFFF;
+                text-shadow:
+                    0 1px 3px rgba(0, 0, 0, 0.45);
+            }
+
+            .zone-bearish {
+                left: 5%;
+                top: 163px;
+                transform: rotate(-68deg);
+            }
+
+            .zone-neutral-bearish {
+                left: 15%;
+                top: 70px;
+                transform: rotate(-38deg);
+            }
+
+            .zone-sideways {
+                left: 50%;
+                top: 31px;
+                transform: translateX(-50%);
+            }
+
+            .zone-neutral-bullish {
+                right: 13%;
+                top: 70px;
+                transform: rotate(38deg);
+            }
+
+            .zone-bullish {
+                right: 5%;
+                top: 163px;
+                transform: rotate(68deg);
+            }
+
+            .score-box {
+                margin-top: 5px;
+                font-size: 13px;
+                color: #64748B;
+            }
+
+            .score-value {
+                color: __ACTIVE_COLOR__;
+                font-size: 32px;
+                font-weight: 800;
+                line-height: 35px;
+            }
+
+            .sentiment-result {
+                display: inline-block;
+                margin-top: 7px;
+                padding: 8px 24px;
+                color: #FFFFFF;
+                background: __ACTIVE_COLOR__;
+                border-radius: 999px;
+                font-size: 15px;
+                font-weight: 800;
+                box-shadow:
+                    0 3px 8px rgba(15, 23, 42, 0.16);
+            }
+
+            @media (max-width: 600px) {
+                .gauge-wrap {
+                    transform: scale(0.88);
+                    transform-origin: top center;
+                    margin-bottom: -30px;
+                }
+
+                .zone-label {
+                    font-size: 9px;
+                }
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="sentiment-card">
+            <div class="gauge-title">
+                Market Sentiment Meter
+            </div>
+
+            <div class="gauge-subtitle">
+                Chart View + Weightage Stocks Confirmation
+            </div>
+
+            <div class="gauge-wrap">
+                <div class="gauge-arc"></div>
+                <div class="gauge-inner"></div>
+
+                <div class="zone-label zone-bearish">
+                    BEARISH
+                </div>
+
+                <div class="zone-label zone-neutral-bearish">
+                    NEUTRAL BEARISH
+                </div>
+
+                <div class="zone-label zone-sideways">
+                    SIDEWAYS
+                </div>
+
+                <div class="zone-label zone-neutral-bullish">
+                    NEUTRAL BULLISH
+                </div>
+
+                <div class="zone-label zone-bullish">
+                    BULLISH
+                </div>
+
+                <div class="needle"></div>
+                <div class="needle-hub"></div>
+            </div>
+
+            <div class="score-box">
+                Sentiment Score
+            </div>
+
+            <div class="score-value">
+                __SCORE__/100
+            </div>
+
+            <div class="sentiment-result">
+                __SENTIMENT__
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    html_code = (
+        html_code
+        .replace("__ANGLE__", str(angle))
+        .replace("__SCORE__", str(score))
+        .replace("__SENTIMENT__", sentiment.upper())
+        .replace("__ACTIVE_COLOR__", active_color)
+    )
+
+    components.html(
+        html_code,
+        height=385,
+        scrolling=False,
+    )
+
 
 def show_market_panel(
     title,
